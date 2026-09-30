@@ -7,7 +7,7 @@ import { Gate } from '../../apps/tna-gate-api/src/gate.js';
 import { Store } from '../../packages/evidence-core/src/index.js';
 import { Ledger, LedgerStore, readerPrincipal, writerPrincipal } from '../../packages/ledger-core/src/index.js';
 import { agentPrincipal } from '../../packages/platform-schema/src/index.js';
-import { PlatformGateOrchestrator, PlatformLedgerDispatcher, PlatformStore } from '../../packages/platform-core/src/index.js';
+import { PlatformGateOrchestrator, PlatformLedgerDispatcher, PlatformStore, type GatePort } from '../../packages/platform-core/src/index.js';
 import { NOW, envelope } from '../fixture.js';
 
 const ADMIN = { kind: 'admin', role: 'administrator' } as const;
@@ -29,14 +29,15 @@ function fixture() {
   const ledger = new Ledger(new LedgerStore(':memory:'));
   const writer = writerPrincipal('platform-ledger-writer', TENANT, ['platform']);
   const reader = readerPrincipal('platform-ledger-reader', TENANT);
-  return { dir, platform, evidence, gate, ledger, writer, reader };
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
+  return { dir, platform, evidence, gate, gatePort, ledger, writer, reader };
 }
 function close(f: ReturnType<typeof fixture>) { f.platform.close(); f.evidence.close(); f.ledger.close(); rmSync(f.dir, { recursive: true, force: true }); }
 
 test('real Gate ALLOW records durable exact decision and does not execute', () => {
   const f = fixture(); try {
     const action = f.platform.createOrReturn(request('allow_1'), 'platform-service');
-    const result = new PlatformGateOrchestrator(f.platform, f.gate).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
+    const result = new PlatformGateOrchestrator(f.platform, f.gatePort).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
     assert.equal(result.state, 'AUTHORIZED');
     assert.equal(result.gate_decision?.decision, 'ALLOW');
     assert.equal(result.gate_decision?.decision_id.startsWith('dec_'), true);
@@ -46,7 +47,7 @@ test('real Gate ALLOW records durable exact decision and does not execute', () =
 
 test('real Gate BLOCK and HOLD become terminal/pre-execution states with no execution claim', () => {
   const f = fixture(); try {
-    const runtime = new PlatformGateOrchestrator(f.platform, f.gate);
+    const runtime = new PlatformGateOrchestrator(f.platform, f.gatePort);
     const blocked = f.platform.createOrReturn(request('block_1', { tool: 'shell.unrestricted' }), 'platform-service');
     assert.equal(runtime.authorize(agentPrincipal('p-agent', TENANT, AGENT), blocked.platform_action_id).state, 'BLOCKED');
     const held = f.platform.createOrReturn(request('hold_1', {
@@ -66,7 +67,7 @@ test('Ledger dispatch is deterministic, idempotent, and reconstructs a real per-
   // through a real Ledger append.
   const f = fixture(); try {
     const action = f.platform.createOrReturn(request('ledger_1'), 'platform-service');
-    const authorized = new PlatformGateOrchestrator(f.platform, f.gate).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
+    const authorized = new PlatformGateOrchestrator(f.platform, f.gatePort).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
     const dispatcher = new PlatformLedgerDispatcher(f.platform, { append: input => f.ledger.append(f.writer, input) }, { clock: () => NOW });
     const first = await dispatcher.dispatchOnce();
     assert.equal(first.delivered, 3);

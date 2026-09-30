@@ -43,11 +43,11 @@ async function withServer(opts: { auditorDown?: boolean; sentinelDown?: boolean 
   const ledgerStore = new LedgerStore(':memory:');
   const ledger = new Ledger(ledgerStore);
   const platform = new PlatformStore(resolve(dir, 'platform.sqlite'), { clock: () => NOW });
-  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request) };
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
   const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, gatePort, facade);
   const auditorProvider = new LedgerEvidenceProvider(ledger, { readerId: 'r' });
   const auditorRuntime = new AuditorRuntime(':memory:', { evidenceProvider: auditorProvider });
   if (opts.auditorDown) auditorRuntime.close(); // a closed store makes every subsequent read throw — genuine unavailability, not a stub

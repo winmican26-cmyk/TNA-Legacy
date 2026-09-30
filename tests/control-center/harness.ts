@@ -38,12 +38,20 @@ import { NOW, envelope } from '../fixture.js';
  */
 
 export const AGENT = 'deployment-agent-17';
+/** Deterministic independent approver token derived from a tenant's operator token. Both the platform
+ * harness (which provisions it as a `human-release-manager` approver credential) and the Control Center
+ * harness (which forwards it as the approver credential) compute the SAME value from the operator token,
+ * so the approver credential is a real, distinct secret without threading a new field through every test.
+ * The fixture envelope requires `human-release-manager` for `production.deploy`. */
+export function approverTokenFor(operatorToken: string): string { return `approver-${operatorToken}`; }
 export function credentials(seed: string) {
+  const operatorToken = `operator-token-${seed}-32-characters-x`;
   return {
     agentTokens: { [`agent-token-${seed}-${'a'.repeat(20)}`]: AGENT },
-    operatorToken: `operator-token-${seed}-32-characters-x`,
+    operatorToken,
     adminToken: `admin-token-${seed}-32-characters-xxxx`,
     serviceToken: `service-token-${seed}-32-characters-xx`,
+    approverTokens: { [approverTokenFor(operatorToken)]: 'human-release-manager' },
   };
 }
 
@@ -51,6 +59,7 @@ export interface RealPlatform {
   readonly baseUrl: string;
   readonly agentToken: string;
   readonly operatorToken: string;
+  readonly approverToken: string;
   readonly close: () => Promise<void>;
 }
 
@@ -64,21 +73,22 @@ export async function startRealPlatform(tenantId: string, seed: string): Promise
   gate.setEnvelope({ kind: 'admin', role: 'administrator' }, envelope());
   const registry = new ToolRegistry();
   registry.register({ name: 'log.write', action: 'log.write', resourceType: 'files', allowedOperations: ['read'], networkRequired: false, credentialsRequired: [], handler: context => ({ echoed: context.input }) });
+  registry.register({ name: 'deploy.execute', action: 'production.deploy', resourceType: 'infrastructure', allowedOperations: ['write'], networkRequired: true, credentialsRequired: [], handler: () => ({ deployed: true }) });
   const broker = new ExecutionBroker(gateEvidence, new CapabilityCodec(randomBytes(32)), registry);
   const sentinel = new SentinelRuntime(':memory:', { clock: () => NOW });
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const ledgerStore = new LedgerStore(':memory:');
   const platform = new PlatformStore(resolve(dir, 'platform.sqlite'), { clock: () => NOW });
-  const gatePort: GatePort = { authorize: (principal, req) => gate.authorize(principal, req) };
+  const gatePort: GatePort = { authorize: (principal, req) => gate.authorize(principal, req), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
   const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController(`c-${seed}`, tenantId), sentinelObserverFactory(`o-${seed}`, tenantId, ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, gatePort, facade);
   const server = createPlatformServer({ store: platform, facade, control }, CREDENTIALS, tenantId);
   await new Promise<void>(res => server.listen(0, '127.0.0.1', res));
   const port = (server.address() as AddressInfo).port;
   return {
-    baseUrl: `http://127.0.0.1:${port}`, agentToken, operatorToken: CREDENTIALS.operatorToken,
+    baseUrl: `http://127.0.0.1:${port}`, agentToken, operatorToken: CREDENTIALS.operatorToken, approverToken: approverTokenFor(CREDENTIALS.operatorToken),
     close: async () => {
       await new Promise<void>(res => server.close(() => res()));
       platform.close(); gateEvidence.close(); sentinel.close(); ledgerStore.close();
@@ -304,7 +314,10 @@ export class TestClock {
 export async function startControlCenter(entries: readonly TenantRegistryEntry[], options: { readonly clock?: TestClock; readonly staticRoot?: string | null; readonly clientGateway?: ClientGatewayConfig | null; readonly environment?: 'development' | 'staging' | 'production'; readonly trustedOrigins?: readonly string[] } = {}): Promise<RealControlCenter> {
   const dir = mkdtempSync(resolve(tmpdir(), 'cc-server-'));
   const sessions = new ControlCenterSessionStore(resolve(dir, 'cc.sqlite'), options.clock ? { clock: options.clock.now } : {});
-  const tenants = tenantRegistryFromEntries(entries);
+  // Provision the independent approver credential the platform's /approve route now requires, derived
+  // deterministically from each entry's operator token (matches what startRealPlatform provisioned).
+  const augmented = entries.map(e => (e.platform_approver_token ? e : { ...e, platform_approver_token: approverTokenFor(e.platform_operator_token) }));
+  const tenants = tenantRegistryFromEntries(augmented);
   const platform = new PlatformProxyClient();
   const clientGateway = options.clientGateway ?? null;
   const clientGatewayClient = clientGateway ? new ClientGatewayProxyClient() : null;

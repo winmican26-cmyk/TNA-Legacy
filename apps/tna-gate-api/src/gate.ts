@@ -33,6 +33,12 @@ export class Gate {
   private requireReader(principal: Principal, agentId: string): void {
     if (principal.kind !== 'admin' && (principal.kind !== 'agent' || principal.agentId !== agentId)) throw new HttpError(403, 'Access denied');
   }
+  requiredApproverRole(agentId: string, action: string): string | null {
+    const policy = this.store.get<Policy>('policy', agentId);
+    if (!policy) return null;
+    const rule = policy.envelope.approvals.required_for.find(r => r.action === action);
+    return rule?.approver_role ?? null;
+  }
   register(principal: Principal, input: unknown): unknown {
     this.requireAdmin(principal);
     const data = registrationSchema.parse(input);

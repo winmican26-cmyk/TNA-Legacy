@@ -8,9 +8,13 @@ import { ControlCenterError, type TenantRegistryEntry } from './schema.js';
  * discipline: the operator console and the Control Center both stay thin over the same real backend).
  */
 
-async function request(entry: TenantRegistryEntry, method: string, path: string, token: string = entry.platform_token, jsonBody?: unknown): Promise<unknown> {
+async function request(entry: TenantRegistryEntry, method: string, path: string, token: string = entry.platform_token, jsonBody?: unknown, approverToken?: string): Promise<unknown> {
   const res = await fetch(`${entry.platform_base_url}${path}`, {
-    method, headers: { Authorization: `Bearer ${token}`, ...(jsonBody !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    method, headers: {
+      Authorization: `Bearer ${token}`,
+      ...(approverToken ? { 'X-Approver-Authorization': `Bearer ${approverToken}` } : {}),
+      ...(jsonBody !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
     ...(jsonBody !== undefined ? { body: JSON.stringify(jsonBody) } : {}),
   });
   const text = await res.text();
@@ -45,7 +49,10 @@ export class PlatformProxyClient {
    * token, and Platform's own accepted `PlatformControlOrchestrator.resume()` independently re-enforces
    * that only an operator/admin principal may call this regardless of what this proxy sends. */
   public approveAction(entry: TenantRegistryEntry, actionId: string): Promise<unknown> {
-    return request(entry, 'POST', `/v1/platform/actions/${encodeURIComponent(actionId)}/approve`, entry.platform_operator_token, {});
+    // The resuming principal is the tenant's OPERATOR token; the independent approver subject is a
+    // DISTINCT approver credential forwarded in X-Approver-Authorization. Platform re-enforces both
+    // independently (operator/admin may resume; a separate authenticated approver must approve).
+    return request(entry, 'POST', `/v1/platform/actions/${encodeURIComponent(actionId)}/approve`, entry.platform_operator_token, {}, entry.platform_approver_token);
   }
   public terminateAction(entry: TenantRegistryEntry, actionId: string, reason: string): Promise<unknown> {
     return request(entry, 'POST', `/v1/platform/actions/${encodeURIComponent(actionId)}/terminate`, entry.platform_operator_token, { reason });

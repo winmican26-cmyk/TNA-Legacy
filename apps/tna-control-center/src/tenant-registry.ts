@@ -38,6 +38,7 @@ export function loadTenantRegistry(path: string): TenantRegistry {
     if (typeof e.platform_base_url !== 'string' || !e.platform_base_url.startsWith('http')) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} missing a valid platform_base_url`);
     if (typeof e.platform_token !== 'string' || e.platform_token.length < 32) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} missing a platform_token of at least 32 characters`);
     if (typeof e.platform_operator_token !== 'string' || e.platform_operator_token.length < 32) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} missing a platform_operator_token of at least 32 characters`);
+    if (e.platform_approver_token !== undefined && (typeof e.platform_approver_token !== 'string' || e.platform_approver_token.length < 32)) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} has an invalid platform_approver_token`);
     if (e.status !== undefined && e.status !== 'ACTIVE' && e.status !== 'SUSPENDED') throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} has an invalid status: ${String(e.status)}`);
     if (e.ledger_base_url !== undefined && (typeof e.ledger_base_url !== 'string' || !e.ledger_base_url.startsWith('http'))) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} has an invalid ledger_base_url`);
     if (e.ledger_reader_token !== undefined && (typeof e.ledger_reader_token !== 'string' || e.ledger_reader_token.length < 32)) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry entry ${e.tenant_id} has an invalid ledger_reader_token`);
@@ -49,6 +50,7 @@ export function loadTenantRegistry(path: string): TenantRegistry {
     if (entries.has(e.tenant_id)) throw new ControlCenterError('CONFIG_ERROR', `Tenant registry contains a duplicate tenant_id: ${e.tenant_id} — this is a configuration error, never silently last-write-wins`);
     entries.set(e.tenant_id, {
       tenant_id: e.tenant_id, platform_base_url: e.platform_base_url, platform_token: e.platform_token, platform_operator_token: e.platform_operator_token,
+      ...(e.platform_approver_token !== undefined ? { platform_approver_token: e.platform_approver_token } : {}),
       ...(e.status !== undefined ? { status: e.status } : {}),
       ...(e.ledger_base_url !== undefined ? { ledger_base_url: e.ledger_base_url } : {}),
       ...(e.ledger_reader_token !== undefined ? { ledger_reader_token: e.ledger_reader_token } : {}),

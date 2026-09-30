@@ -55,6 +55,11 @@ export interface TenantRegistryEntry {
   /** An OPERATOR-scoped token — required for `/approve` and `/terminate`. Held server-side only; the
    * browser never sees either token. */
   readonly platform_operator_token: string;
+  /** An independent APPROVER-scoped token (final security remediation). Distinct from the operator
+   * token, it authenticates the human approver subject that Platform's `/approve` route now requires
+   * via `X-Approver-Authorization`. Held server-side only; never seen by the browser. Optional so a
+   * deployment that never approves through the Control Center need not provision one. */
+  readonly platform_approver_token?: string;
   /** Optional — Ledger and Auditor are, like Platform, single-tenant-per-process real services
    * (`createLedgerServer`/`createAuditorServer` both take a fixed `tenantId` at construction). `null`/
    * absent means the Evidence Explorer / Audit page routes fail closed (503) for this tenant rather than

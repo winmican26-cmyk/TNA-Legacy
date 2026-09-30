@@ -327,8 +327,16 @@ export class PlatformStore implements OutboxPort {
 export interface GatePort {
   authorize(principal: { readonly kind: 'agent'; readonly agentId: string }, request: {
     readonly agentId: string; readonly action: string; readonly tool: string; readonly resource: string;
-    readonly estimatedCostUsd: number; readonly destination?: string;
+    readonly estimatedCostUsd: number; readonly destination?: string; readonly approvalId?: string;
   }): GateDecisionLike;
+  approve(principal: { readonly kind: 'admin' | 'approver'; readonly role: string }, request: {
+    readonly agentId: string; readonly action: string; readonly tool: string; readonly resource: string;
+    readonly destination?: string; readonly estimatedCostUsd: number;
+    readonly approverRole: string; readonly expiresAt: string;
+  }): { readonly approvalId: string; readonly expiresAt: string };
+  /** Returns the approver role required by the agent's envelope for the given action, or null if
+   *  no approval is required or the agent/policy is unknown. */
+  requiredApproverRole(agentId: string, action: string): string | null;
 }
 export interface GateDecisionLike {
   readonly decisionId: string; readonly decision: 'ALLOW' | 'BLOCK' | 'HOLD'; readonly reason: string;
@@ -339,7 +347,7 @@ export interface GateDecisionLike {
  * execution are deliberately outside this atom: ALLOW leaves the durable action AUTHORIZED. */
 export class PlatformGateOrchestrator {
   public constructor(private readonly store: PlatformStore, private readonly gate: GatePort) {}
-  public authorize(principal: PlatformPrincipal, actionId: string): PlatformAction {
+  public authorize(principal: PlatformPrincipal, actionId: string, approvalId?: string): PlatformAction {
     if (principal.role !== 'platform-agent' || !principal.agentId) throw new PlatformError('FORBIDDEN', 'Only a tenant-bound platform agent may request Gate authorization');
     const action = this.store.get(principal.tenantId, actionId);
     if (action.request.agent_id !== principal.agentId) throw new PlatformError('FORBIDDEN', 'Platform agent is not bound to this action');
@@ -351,7 +359,7 @@ export class PlatformGateOrchestrator {
     const decision = this.gate.authorize({ kind: 'agent', agentId: principal.agentId }, {
       agentId: authorizing.request.agent_id, action: authorizing.request.action, tool: authorizing.request.tool,
       resource: authorizing.request.resource, estimatedCostUsd: authorizing.request.requested_cost_limits?.max_cost_usd ?? 0,
-      ...(destination ? { destination } : {}),
+      ...(destination ? { destination } : {}), ...(approvalId ? { approvalId } : {}),
     });
     const evidence: GateDecisionEvidence = {
       decision_id: decision.decisionId, decision: decision.decision, reason: decision.reason,
@@ -408,18 +416,55 @@ export class PlatformLedgerDispatcher {
     const capturedDecisionId = capturedDecisionIdFromPayload(record.payload);
     const capturedPolicyHash = capturedPolicyHashFromPayload(record.payload);
     const causationEventId = typeof record.payload.causation_event_id === 'string' ? record.payload.causation_event_id : undefined;
+
+    // Extract vendor provenance from action metadata (set by vendor adapter)
+    const vendor = action.request.metadata?.vendor as string | undefined;
+    const vendor_session_id = action.request.metadata?.vendor_session_id as string | undefined;
+    const vendor_request_id = action.request.metadata?.vendor_request_id as string | undefined;
+    const vendor_tool_call_id = action.request.metadata?.vendor_tool_call_id as string | null | undefined;
+    const model_identifier = action.request.metadata?.model as string | undefined;
+    const model_snapshot = action.request.metadata?.model_version as string | undefined;
+    const capability_id = action.capability_id;
+
     const authority = {
       agent_id: action.request.agent_id, action: action.request.action, tool: action.request.tool,
       resource: action.request.resource, operation: action.request.operation,
       ...(capturedDecisionId ? { decision_id: capturedDecisionId } : {}),
       ...(capturedPolicyHash ? { policy_hash: capturedPolicyHash } : {}),
+      // Vendor provenance (TNA Vendor Authority Adapter v0.1)
+      ...(vendor ? { vendor } : {}),
+      ...(vendor_session_id ? { vendor_session_id } : {}),
+      ...(vendor_request_id ? { vendor_request_id } : {}),
+      ...(vendor_tool_call_id !== undefined ? { vendor_tool_call_id } : {}),
+      ...(model_identifier ? { model_identifier } : {}),
+      ...(model_snapshot ? { model_snapshot } : {}),
+      ...(capability_id ? { capability_id } : {}),
     };
+
+    const execution: Record<string, unknown> = {
+      tool: action.request.tool,
+      operation: action.request.operation,
+      resource: action.request.resource,
+      input_hash: action.input_hash,
+      // Vendor provenance for execution events
+      ...(vendor ? { vendor } : {}),
+      ...(vendor_session_id ? { vendor_session_id } : {}),
+      ...(vendor_request_id ? { vendor_request_id } : {}),
+      ...(vendor_tool_call_id !== undefined ? { vendor_tool_call_id } : {}),
+      ...(model_identifier ? { model_identifier } : {}),
+      ...(model_snapshot ? { model_snapshot } : {}),
+      ...(capability_id ? { capability_id } : {}),
+    };
+    if (action.execution_id !== null) execution.execution_id = action.execution_id;
+    if (action.result_hash !== null) execution.result_hash = action.result_hash;
+
     return {
       version: '1.0', event_id: outboxLedgerEventId(record.outbox_id), event_type: eventType,
       tenant_id: action.tenant_id, stream_id: `platform:${action.platform_action_id}`,
       correlation_id: action.correlation_id, ...(causationEventId ? { causation_id: causationEventId } : {}),
       actor: { type: 'AGENT', id: action.request.agent_id }, source_component: 'platform',
       authority_context: authority,
+      execution_context: execution,
       payload: { ...record.payload, input_hash: action.input_hash },
     };
   }
@@ -586,9 +631,11 @@ export class PlatformExecutionOrchestrator {
     // 6. Broker-mediated connector execution (section 22, 24) — never a direct handler call.
     let redeemed;
     try {
+      const destination = typeof action.request.metadata?.destination === 'string' ? action.request.metadata.destination : undefined;
       redeemed = await this.broker.redeem(gatePrincipal, {
         token: capability.token, tool: action.request.tool, resource: action.request.resource,
         operation: brokerOperation(action.request.action), input: action.request.input, input_hash: hash(action.request.input),
+        ...(destination ? { destination } : {}),
       });
     } catch (error) {
       const indeterminate = error instanceof BrokerError && /Evidence persistence failed after successful handler execution/.test(error.message);
@@ -669,9 +716,18 @@ export class PlatformExecutionOrchestrator {
  * rather than re-running any side effect.
  */
 export class PlatformFacade {
-  public constructor(private readonly store: PlatformStore, private readonly gateOrchestrator: PlatformGateOrchestrator, private readonly executionOrchestrator: PlatformExecutionOrchestrator) {}
+  public constructor(private readonly store: PlatformStore, public readonly gateOrchestrator: PlatformGateOrchestrator, public readonly executionOrchestrator: PlatformExecutionOrchestrator) {}
   public async submitAndRun(principal: PlatformPrincipal, raw: unknown, createdBy: string): Promise<PlatformAction> {
     assertCanSubmit(principal);
+    // The tenant is established by the authenticated credential, not by the request body. Without this
+    // binding `createOrReturn` would persist the action under a caller-declared `tenant_id` while every
+    // later read/transition (Gate, execute, retrieve, approve) is scoped to `principal.tenantId` — the
+    // action would be created and then be unreachable under the same credential that just created it
+    // (404), and an agent could also write an action into a tenant it does not belong to. Fail closed on
+    // any mismatch instead of silently persisting an action nobody can ever read.
+    if (validatePlatformActionRequestInput(raw).tenant_id !== principal.tenantId) {
+      throw new PlatformError('FORBIDDEN', `Request tenant_id does not match the credential's tenant scope`);
+    }
     const created = this.store.createOrReturn(raw, createdBy);
     if (created.state !== 'RECEIVED') return created;
     const authorized = this.gateOrchestrator.authorize(principal, created.platform_action_id);
@@ -681,15 +737,102 @@ export class PlatformFacade {
   }
 }
 
+/** An independently authenticated approver subject handed to `PlatformControlOrchestrator.resume()`.
+ * `role` and `subjectId` both originate from a verified credential at the caller boundary (never from
+ * a request body). `subjectId` is a stable, non-secret identity used only to prove the approver is a
+ * distinct subject from the resuming operator (self-approval prevention). */
+export interface ResumeApprover { readonly role: string; readonly subjectId: string }
+
+/** Optional, untrusted caller inputs to `resume()`. `callerAssertedRole` is whatever an untrusted
+ * request body claimed the approver role to be — it is NOT used to authorize; it is only compared
+ * against the authenticated approver's role and, on any disagreement, the resume is rejected.
+ * `requestedExpiresAt` may only ever SHORTEN the server-computed approval window, never extend it. */
+export interface ResumeOptions { readonly callerAssertedRole?: string; readonly requestedExpiresAt?: string }
+
+/** Fixed server-side approval window (1 hour) measured from Gate's own recorded decision time. Gate
+ * independently re-clamps any approval expiry to the envelope lifetime, so this is an upper bound, not
+ * a grant of authority. */
+const APPROVAL_WINDOW_MS = 3_600_000;
+
 /** Operator control actions (sections 47-48): approve/resume a HELD action, or terminate one already
- * in flight. An agent principal cannot call either — enforced by `platform-schema`'s own role guards. */
+ * in flight. An agent principal cannot call either — enforced by `platform-schema`'s own role guards.
+ * `resume` performs the full Gate approval + re-authorization + execution pipeline — a bare state
+ * transition without Gate would leave the action stuck in AUTHORIZING indefinitely. */
 export class PlatformControlOrchestrator {
-  public constructor(private readonly store: PlatformStore) {}
-  public resume(principal: PlatformPrincipal, actionId: string): PlatformAction {
+  public constructor(
+    private readonly store: PlatformStore,
+    private readonly gate: GatePort,
+    private readonly facade: PlatformFacade,
+  ) {}
+  /**
+   * Approve and resume a HELD action. Final security remediation — the approver is an INDEPENDENTLY
+   * AUTHENTICATED subject supplied by the caller boundary (the HTTP layer authenticates a distinct
+   * approver credential via `resolveApprover`), NEVER a role string taken from a request body and NEVER
+   * the resuming operator's own identity. This method:
+   *   - requires an authenticated approver subject (no synthesis, no fallback to `principal.role`);
+   *   - requires the approver's role to equal the EXACT role the active authority envelope demands for
+   *     this action (`gate.requiredApproverRole`) — a mismatch, or an action that requires no approval,
+   *     is rejected, so a caller-controlled or conflicting role can never escalate;
+   *   - requires the approver subject to be independent of the resuming operator (`approver.subjectId
+   *     !== principal.id`) — the original requester/operator cannot approve its own action, and an
+   *     operator credential alone cannot act as the approver;
+   *   - computes approval expiry from trusted server-side time and policy (Gate's own decision
+   *     timestamp + a fixed server window), never from an unbounded caller-supplied value.
+   * The approval itself is still minted only by the accepted `Gate.approve()` — this introduces no
+   * second approval-authority model.
+   */
+  public async resume(principal: PlatformPrincipal, actionId: string, approver: ResumeApprover, options: ResumeOptions = {}): Promise<PlatformAction> {
     if (principal.role !== 'platform-operator' && principal.role !== 'platform-admin') throw new PlatformError('FORBIDDEN', `Role ${principal.role} may not resume a held action`);
+    if (!approver || typeof approver.role !== 'string' || approver.role.length === 0 || typeof approver.subjectId !== 'string' || approver.subjectId.length === 0) {
+      throw new PlatformError('FORBIDDEN', 'An independently authenticated approver is required to resume a held action');
+    }
     const action = this.store.get(principal.tenantId, actionId);
     if (action.state !== 'HELD') throw new PlatformError('INVALID_TRANSITION', `Action is not HELD (state: ${action.state})`);
-    return this.store.transition(action.tenant_id, actionId, action.state_version, 'AUTHORIZING');
+    // The exact role the active envelope requires for THIS action. If the action requires no approval,
+    // there is nothing to resume-approve — fail closed rather than invent an authority.
+    const requiredRole = this.gate.requiredApproverRole(action.request.agent_id, action.request.action);
+    if (!requiredRole) throw new PlatformError('FORBIDDEN', 'This action has no approval-required authority to satisfy');
+    if (approver.role !== requiredRole) throw new PlatformError('FORBIDDEN', `Authenticated approver role '${approver.role}' does not match the required role '${requiredRole}'`);
+    // A conflicting caller-supplied approver role (e.g. from a request body) is rejected outright — the
+    // authenticated credential's role is authoritative, and a disagreement is treated as an attack, not
+    // a silent default. (`options.callerAssertedRole` carries whatever the request body claimed, if any.)
+    if (options.callerAssertedRole !== undefined && options.callerAssertedRole !== approver.role) {
+      throw new PlatformError('FORBIDDEN', 'Caller-supplied approver role conflicts with the authenticated approver');
+    }
+    // Independence: the approver subject must not be the resuming operator/admin principal. This blocks
+    // operator self-approval and an operator credential doubling as its own approver.
+    if (approver.subjectId === principal.id) throw new PlatformError('FORBIDDEN', 'The resuming principal may not also be the approver (self-approval is prohibited)');
+    const destination = typeof action.request.metadata?.destination === 'string' ? action.request.metadata.destination : undefined;
+    const costUsd = action.request.requested_cost_limits?.max_cost_usd ?? 0;
+    // Expiry is trusted server-side policy: bounded to a fixed server window from Gate's own recorded
+    // decision time (never wall-clock drift, never an unbounded caller value). A caller may request a
+    // SHORTER expiry but never a longer one; Gate independently re-clamps to the envelope lifetime.
+    const decidedAt = action.gate_decision?.decided_at;
+    const decisionMs = decidedAt ? Date.parse(decidedAt) : Date.now();
+    const serverBoundMs = decisionMs + APPROVAL_WINDOW_MS;
+    let approvalExpiry = new Date(serverBoundMs).toISOString();
+    if (options.requestedExpiresAt) {
+      const requestedMs = Date.parse(options.requestedExpiresAt);
+      if (Number.isFinite(requestedMs) && requestedMs > decisionMs && requestedMs < serverBoundMs) approvalExpiry = new Date(requestedMs).toISOString();
+    }
+    // 1. Create a Gate approval record via the accepted Gate.approve(). The principal handed to Gate
+    //    carries the AUTHENTICATED approver's role; Gate independently re-checks it against the
+    //    envelope's required role and the request hash before issuing the approval.
+    const { approvalId } = this.gate.approve(
+      { kind: 'approver', role: approver.role },
+      { agentId: action.request.agent_id, action: action.request.action, tool: action.request.tool, resource: action.request.resource,
+        estimatedCostUsd: costUsd, ...(destination ? { destination } : {}), approverRole: approver.role, expiresAt: approvalExpiry },
+    );
+    // 2. Transition HELD → AUTHORIZING, then re-authorize through Gate with the approvalId.
+    this.store.transition(action.tenant_id, actionId, action.state_version, 'AUTHORIZING');
+    const agentPrincipal: PlatformPrincipal = { id: `platform-agent-${action.request.agent_id}`, role: 'platform-agent', tenantId: action.tenant_id, agentId: action.request.agent_id };
+    const authorized = this.facade.gateOrchestrator.authorize(agentPrincipal, actionId, approvalId);
+    // 3. If Gate now says AUTHORIZED, continue to execution.
+    if (authorized.state === 'AUTHORIZED') {
+      const outcome = await this.facade.executionOrchestrator.run(agentPrincipal, actionId);
+      return outcome.action;
+    }
+    return authorized;
   }
   public terminate(principal: PlatformPrincipal, actionId: string, reason: string): PlatformAction {
     if (principal.role !== 'platform-operator' && principal.role !== 'platform-admin') throw new PlatformError('FORBIDDEN', `Role ${principal.role} may not terminate a platform action`);

@@ -13,7 +13,7 @@ import { SentinelRuntime, adminPrincipal as sentinelAdmin, controllerPrincipal a
 import { agentPrincipal, operatorPrincipal } from '../../packages/platform-schema/src/index.js';
 import {
   PlatformExecutionOrchestrator, PlatformGateOrchestrator, PlatformControlOrchestrator, PlatformFacade,
-  PlatformLedgerDispatcher, PlatformStore, reconstructPlatformAction, type SentinelPort, type VadPort,
+  PlatformLedgerDispatcher, PlatformStore, reconstructPlatformAction, type SentinelPort, type VadPort, type GatePort,
 } from '../../packages/platform-core/src/index.js';
 import { NOW, envelope } from '../fixture.js';
 
@@ -30,6 +30,7 @@ function fixture(sentinelPort?: SentinelPort, vad?: VadPort) {
   gate.setEnvelope(ADMIN, envelope());
   const registry = new ToolRegistry();
   registry.register({ name: 'log.write', action: 'log.write', resourceType: 'files', allowedOperations: ['read'], networkRequired: false, credentialsRequired: [], handler: () => ({ ok: true }) });
+  registry.register({ name: 'deploy.execute', action: 'production.deploy', resourceType: 'infrastructure', allowedOperations: ['write'], networkRequired: true, credentialsRequired: [], handler: () => ({ deployed: true }) });
   const broker = new ExecutionBroker(evidence, new CapabilityCodec(randomBytes(32)), registry);
   const sentinel = new SentinelRuntime(':memory:', { clock: () => NOW });
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', TENANT));
@@ -38,10 +39,11 @@ function fixture(sentinelPort?: SentinelPort, vad?: VadPort) {
   const ledger = new Ledger(ledgerStore);
   const writer = writerPrincipal('platform-ledger-writer', TENANT, ['platform']);
   const reader = readerPrincipal('platform-ledger-reader', TENANT);
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, port, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']), vad);
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, gatePort, facade);
   const dispatcher = new PlatformLedgerDispatcher(platform, { append: input => ledger.append(writer, input) }, { clock: () => NOW });
   return { dir, platform, evidence, gate, sentinel, ledgerStore, ledger, writer, reader, gateOrchestrator, executionOrchestrator, control, facade, dispatcher };
 }
@@ -65,14 +67,13 @@ test('historical causation must not drift: an earlier record dispatched after th
     const firstDecisionId = held.gate_decision?.decision_id;
     assert.ok(firstDecisionId);
 
-    // Do NOT dispatch yet. Progress the action further first: resume -> re-authorize. Gate issues a
-    // brand-new decision_id on every call (even for the identical HOLD outcome again, since no
-    // approval was ever supplied — the platform adds no approval-injection mechanism, which would be
-    // a new feature), so the action's *current* gate_decision is now a different id than the one that
-    // actually caused the HELD record enqueued above.
-    f.control.resume(operatorPrincipal('op', TENANT), action.platform_action_id);
-    const heldAgain = f.gateOrchestrator.authorize(agentPrincipal('p', TENANT, AGENT), action.platform_action_id);
-    const secondDecisionId = heldAgain.gate_decision?.decision_id;
+    // Do NOT dispatch yet. Progress the action further first: resume (with approval) -> re-authorize.
+    // With the approval flow now wired through Gate, resume() creates a real Gate approval record,
+    // re-authorizes (ALLOW), and proceeds to execution. The original HELD decision_id remains in the
+    // earlier outbox record — that is the causation invariant this test proves.
+    await f.control.resume(operatorPrincipal('op', TENANT), action.platform_action_id, { role: 'human-release-manager', subjectId: 'approver-security-desk' }, { requestedExpiresAt: '2026-09-09T00:00:00Z' });
+    const currentAction = f.platform.get(TENANT, action.platform_action_id);
+    const secondDecisionId = currentAction.gate_decision?.decision_id;
     assert.ok(secondDecisionId);
     assert.notEqual(firstDecisionId, secondDecisionId, 'test setup sanity: the two decisions must genuinely differ');
 

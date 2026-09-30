@@ -10,7 +10,7 @@ import { CapabilityCodec } from '../../packages/capability-core/src/index.js';
 import { ExecutionBroker, ToolRegistry } from '../../packages/execution-broker/src/index.js';
 import { SentinelRuntime, adminPrincipal as sentinelAdmin, controllerPrincipal as sentinelController, observerPrincipal as sentinelObserverFactory } from '../../packages/sentinel-runtime/src/index.js';
 import { agentPrincipal, operatorPrincipal, validatePlatformActionRequestInput, PlatformError } from '../../packages/platform-schema/src/index.js';
-import { PlatformExecutionOrchestrator, PlatformGateOrchestrator, PlatformControlOrchestrator, PlatformFacade, PlatformStore } from '../../packages/platform-core/src/index.js';
+import { PlatformExecutionOrchestrator, PlatformGateOrchestrator, PlatformControlOrchestrator, PlatformFacade, PlatformStore, type GatePort } from '../../packages/platform-core/src/index.js';
 import { buildDriftingConnector } from '../../packages/platform-connectors/src/index.js';
 import { NOW, envelope } from '../fixture.js';
 
@@ -32,10 +32,11 @@ function fixture() {
   const broker = new ExecutionBroker(evidence, new CapabilityCodec(randomBytes(32)), registry);
   const sentinel = new SentinelRuntime(':memory:', { clock: () => NOW });
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', TENANT));
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, gatePort, facade);
   return { dir, platform, evidence, gate, sentinel, gateOrchestrator, executionOrchestrator, control, facade };
 }
 function close(f: ReturnType<typeof fixture>) { f.platform.close(); f.evidence.close(); f.sentinel.close(); rmSync(f.dir, { recursive: true, force: true }); }
@@ -61,7 +62,7 @@ test('abuse: an agent cannot self-approve, and cannot self-resume its own HELD a
   const f = fixture(); try {
     const action = f.platform.createOrReturn(baseRequest('abuse_self_approve', { action: 'production.deploy', tool: 'deploy.execute', resource: 'prod.deploy.release', metadata: { destination: 'deploy.internal.company' } }), 'platform-service');
     f.gateOrchestrator.authorize(agentPrincipal('p', TENANT, AGENT), action.platform_action_id);
-    assert.throws(() => f.control.resume(agentPrincipal('p', TENANT, AGENT), action.platform_action_id), (e: unknown) => e instanceof PlatformError && e.code === 'FORBIDDEN');
+    await assert.rejects(() => f.control.resume(agentPrincipal('p', TENANT, AGENT), action.platform_action_id, { role: 'human-release-manager', subjectId: 'approver-security-desk' }), (e: unknown) => e instanceof PlatformError && e.code === 'FORBIDDEN');
   } finally { close(f); }
 });
 

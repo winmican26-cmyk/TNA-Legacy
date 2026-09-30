@@ -46,9 +46,21 @@ logger.log('info', 'Deployment identity resolved', { event: 'DEPLOYMENT_IDENTITY
 // future milestone's concern, not invented here.
 const demoAgentToken = process.env.TNA_PLATFORM_DEMO_AGENT_TOKEN ?? '';
 const demoAgentId = process.env.TNA_PLATFORM_DEMO_AGENT_ID ?? '';
+// Independent approver credentials (final security remediation). Mirrors the accepted tna-gate-api
+// server's `approvers: [{ token, role }]` provisioning: each approver bearer token is bound at trusted
+// startup to exactly one approver role, from env, and is DISJOINT from operator/admin/service/agent
+// tokens (enforced by validateCredentials). A missing/blank token simply provisions no approver of that
+// role — approval-gated actions then cannot be approved on this deployment (fail closed), rather than
+// falling back to an operator-as-approver. Roles match the accepted envelope's `approvals.required_for`.
+const approverTokens: Record<string, string> = {};
+const securityApproverToken = process.env.TNA_PLATFORM_SECURITY_APPROVER_TOKEN ?? '';
+const releaseApproverToken = process.env.TNA_PLATFORM_RELEASE_APPROVER_TOKEN ?? '';
+if (securityApproverToken) approverTokens[securityApproverToken] = 'security';
+if (releaseApproverToken) approverTokens[releaseApproverToken] = 'human-release-manager';
 const credentials: PlatformCredentials = {
   agentTokens: demoAgentToken && demoAgentId ? { [demoAgentToken]: demoAgentId } : {},
   operatorToken: config.secrets.operatorToken, adminToken: config.secrets.adminToken, serviceToken: config.secrets.serviceToken,
+  ...(Object.keys(approverTokens).length > 0 ? { approverTokens } : {}),
 };
 
 // Gate + broker-mediated connector execution (section 52: platform owns its own Gate/broker store,
@@ -75,13 +87,14 @@ const ledger = new Ledger(ledgerStore);
 
 // Platform's own durable control-plane store + outbox.
 const platform = new PlatformStore(resolve(config.dataDir, 'tna-platform.sqlite'));
-const gateOrchestrator = new PlatformGateOrchestrator(platform, new GateActionAdapter(gate));
+const gateAdapter = new GateActionAdapter(gate);
+const gateOrchestrator = new PlatformGateOrchestrator(platform, gateAdapter);
 const executionOrchestrator = new PlatformExecutionOrchestrator(
   platform, broker, sentinel, sentinelControllerPrincipal('platform-sentinel-controller', tenantId),
   sentinelObserverPrincipal('platform-execution-broker', tenantId, ['EXECUTION_BROKER']), new VadVerificationAdapter(),
 );
-const control = new PlatformControlOrchestrator(platform);
 const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+const control = new PlatformControlOrchestrator(platform, gateAdapter, facade);
 const dispatcher = new PlatformLedgerDispatcher(platform, { append: input => ledger.append(platformWriter(tenantId), input) });
 void platformLedgerReader; // reserved for a future read-side platform Ledger reconstruction endpoint
 

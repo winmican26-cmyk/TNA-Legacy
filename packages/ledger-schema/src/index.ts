@@ -81,6 +81,9 @@ export interface AuthorityContext {
   agent_id?: string; decision_id?: string; policy_hash?: string; policy_issuance_id?: string;
   approval_id?: string; capability_id?: string; action?: string; tool?: string; resource?: string;
   operation?: string; destination?: string | null; authority_expiry?: string;
+  /** Vendor provenance fields (TNA Vendor Authority Adapter v0.1) */
+  vendor?: string; vendor_session_id?: string; vendor_request_id?: string; vendor_tool_call_id?: string | null;
+  model_identifier?: string; model_snapshot?: string; normalized_action_hash?: string;
 }
 export interface SpecContext {
   atom_id?: string; atom_version?: string; spec_hash?: string; risk_level?: string;
@@ -91,6 +94,9 @@ export interface ExecutionContext {
   execution_id?: string; tool?: string; operation?: string; resource?: string; input_hash?: string;
   started_at?: string; completed_at?: string; runtime_ms?: number; exit_status?: string;
   termination_reason?: string; result_hash?: string;
+  /** Vendor provenance fields (TNA Vendor Authority Adapter v0.1) */
+  vendor?: string; vendor_session_id?: string; vendor_request_id?: string; vendor_tool_call_id?: string | null;
+  model_identifier?: string; model_snapshot?: string; capability_id?: string;
 }
 export interface ArtifactContext {
   artifact_id?: string; artifact_type?: string; artifact_hash?: string; diff_hash?: string;

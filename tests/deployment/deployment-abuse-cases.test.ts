@@ -83,6 +83,7 @@ test('abuse: an operator-supplied backup destination cannot traverse outside the
 test('abuse: no HTTP route exists that exposes a Ledger writer/append capability directly — Ledger is never network-reachable except through platform-orchestrated evidence delivery', async () => {
   const { createPlatformServer } = await import('../../apps/tna-platform/src/server.js');
   const { PlatformStore, PlatformGateOrchestrator, PlatformExecutionOrchestrator, PlatformControlOrchestrator, PlatformFacade } = await import('../../packages/platform-core/src/index.js');
+  type GatePort = import('../../packages/platform-core/src/index.js').GatePort;
   const { SentinelRuntime, controllerPrincipal, observerPrincipal } = await import('../../packages/sentinel-runtime/src/index.js');
   const { Store } = await import('../../packages/evidence-core/src/index.js');
   const { CapabilityCodec } = await import('../../packages/capability-core/src/index.js');
@@ -93,10 +94,11 @@ test('abuse: no HTTP route exists that exposes a Ledger writer/append capability
   const broker = new ExecutionBroker(gateEvidence, new CapabilityCodec(randomBytes(32)), new ToolRegistry());
   const sentinel = new SentinelRuntime(':memory:');
   const platform = new PlatformStore(join(dir, 'p.sqlite'));
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, { authorize: () => { throw new Error('unused'); } });
+  const stubGate: GatePort = { authorize: () => { throw new Error('unused'); }, approve: () => { throw new Error('unused'); }, requiredApproverRole: () => null };
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, stubGate);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, controllerPrincipal('c', 't'), observerPrincipal('o', 't', ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, stubGate, facade);
   const server = createPlatformServer({ store: platform, facade, control }, { agentTokens: {}, operatorToken: strongSecret('op'), adminToken: strongSecret('ad'), serviceToken: strongSecret('sv') }, 't');
   await new Promise<void>(res => server.listen(0, '127.0.0.1', res));
   const port = (server.address() as { port: number }).port;

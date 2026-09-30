@@ -13,7 +13,7 @@ import { SentinelRuntime, adminPrincipal as sentinelAdmin, controllerPrincipal a
 import { agentPrincipal, PlatformError } from '../../packages/platform-schema/src/index.js';
 import {
   PlatformExecutionOrchestrator, PlatformGateOrchestrator, PlatformLedgerDispatcher, PlatformStore,
-  type SentinelPort, type VadPort,
+  type SentinelPort, type VadPort, type GatePort,
 } from '../../packages/platform-core/src/index.js';
 import { NOW, envelope } from '../fixture.js';
 
@@ -52,13 +52,14 @@ function fixture(sentinelPort?: SentinelPort) {
   const writer = writerPrincipal('platform-ledger-writer', TENANT, ['platform']);
   const reader = readerPrincipal('platform-ledger-reader', TENANT);
   const orchestrator = new PlatformExecutionOrchestrator(platform, broker, port, sentinelController('platform-sentinel-controller', TENANT), sentinelObserverFactory('platform-execution-broker', TENANT, ['EXECUTION_BROKER']));
-  return { dir, platform, evidence, gate, broker, sentinel, ledger, writer, reader, orchestrator };
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
+  return { dir, platform, evidence, gate, gatePort, broker, sentinel, ledger, writer, reader, orchestrator };
 }
 function close(f: ReturnType<typeof fixture>) { f.platform.close(); f.evidence.close(); f.sentinel.close(); f.ledger.close(); rmSync(f.dir, { recursive: true, force: true }); }
 
 async function authorizeAndReachAuthorized(f: ReturnType<typeof fixture>, requestId = 'exec_1', patch: Record<string, unknown> = {}) {
   const action = f.platform.createOrReturn(request(requestId, patch), 'platform-service');
-  return new PlatformGateOrchestrator(f.platform, f.gate).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
+  return new PlatformGateOrchestrator(f.platform, f.gatePort).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
 }
 
 test('end-to-end: ALLOW -> capability -> Sentinel session -> broker-mediated execution -> COMPLETED, with reconstructable Ledger evidence', async () => {
@@ -194,7 +195,8 @@ test('VAD required: ACCEPTED completes the action, REJECTED fails it, ESCALATED 
     const orchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']), vad);
     try {
       const action = platform.createOrReturn(request(`exec_vad_${finalState}`, { requires_verification: true }), 'platform-service');
-      const authorized = new PlatformGateOrchestrator(platform, gate).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
+      const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
+      const authorized = new PlatformGateOrchestrator(platform, gatePort).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
       const outcome = await orchestrator.run(agentPrincipal('p-agent', TENANT, AGENT), authorized.platform_action_id);
       assert.equal(outcome.action.state, expectState, `VAD ${finalState} should resolve to ${expectState}`);
       assert.equal(outcome.action.error_code, expectErrorCode);
@@ -206,7 +208,7 @@ test('VAD required: ACCEPTED completes the action, REJECTED fails it, ESCALATED 
 test('VAD required but unconfigured resolves to INDETERMINATE, never a silent COMPLETED skip', async () => {
   const f = fixture(); try {
     const action = f.platform.createOrReturn(request('exec_vad_missing', { requires_verification: true }), 'platform-service');
-    const authorized = new PlatformGateOrchestrator(f.platform, f.gate).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
+    const authorized = new PlatformGateOrchestrator(f.platform, f.gatePort).authorize(agentPrincipal('p-agent', TENANT, AGENT), action.platform_action_id);
     const outcome = await f.orchestrator.run(agentPrincipal('p-agent', TENANT, AGENT), authorized.platform_action_id);
     assert.equal(outcome.action.state, 'INDETERMINATE');
     assert.equal(outcome.action.error_code, 'COMPONENT_UNAVAILABLE');

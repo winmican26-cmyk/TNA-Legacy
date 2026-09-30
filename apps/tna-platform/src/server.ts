@@ -11,7 +11,7 @@ import { redact } from '../../../packages/deployment-schema/src/index.js';
 import type { MetricsRegistry } from '../../../packages/deployment-health/src/index.js';
 import { getLiveness, getReadiness, type HealthDeps } from './health.js';
 import { buildDiagnostics, listDeadLetters } from './diagnostics.js';
-import { validateCredentials, principalFor, type PlatformCredentials } from './writers.js';
+import { validateCredentials, principalFor, resolveApprover, type PlatformCredentials } from './writers.js';
 
 export class HttpError extends Error {
   public constructor(public readonly status: number, message: string) { super(message); this.name = 'HttpError'; }
@@ -145,7 +145,28 @@ export function createPlatformServer(deps: PlatformServerDeps, credentials: Plat
           if (req.method === 'GET' && subPath === '') return send(res, 200, assertOwnedOrPrivileged(deps.store.get(principal.tenantId, actionId), principal));
           if (req.method === 'GET' && subPath === '/status') { const action = deps.store.get(principal.tenantId, actionId); return send(res, 200, { platform_action_id: action.platform_action_id, state: action.state, error_code: action.error_code, evidence_status: deps.store.evidenceStatus(principal.tenantId, actionId) }); }
           if (req.method === 'GET' && subPath === '/evidence') return send(res, 200, reconstructPlatformAction(deps.store, principal.tenantId, actionId));
-          if (req.method === 'POST' && (subPath === '/approve' || subPath === '/resume')) return send(res, 200, deps.control.resume(principal, actionId));
+          if (req.method === 'POST' && (subPath === '/approve' || subPath === '/resume')) {
+            const input = await body(req);
+            // The resuming principal (operator/admin) is authenticated above from the Authorization
+            // header. The APPROVER is a SEPARATE, independently authenticated subject: it must present
+            // its own distinct credential in the `X-Approver-Authorization` header, which resolves to a
+            // role via the trusted approver-credential map (never from the request body). No approver
+            // credential -> no approval possible (fail closed).
+            const approverAuth = req.headers['x-approver-authorization'];
+            const approverHeader = Array.isArray(approverAuth) ? approverAuth[0] : approverAuth;
+            if (!approverHeader?.startsWith('Bearer ')) throw new HttpError(401, 'An independent approver credential (X-Approver-Authorization: Bearer <token>) is required');
+            const approver = resolveApprover(approverHeader.slice(7), credentials);
+            if (!approver) throw new HttpError(403, 'Approver credential is not a recognised approver');
+            // Whatever the body claims the role is, is UNTRUSTED — passed only so resume() can reject a
+            // conflict with the authenticated approver. The authenticated role is authoritative.
+            const callerAssertedRole = isPlainObject(input) && typeof input.approver_role === 'string' ? input.approver_role : undefined;
+            const requestedExpiresAt = isPlainObject(input) && typeof input.expires_at === 'string' ? input.expires_at : undefined;
+            return send(res, 200, await deps.control.resume(
+              principal, actionId,
+              { role: approver.role, subjectId: approver.credentialId },
+              { ...(callerAssertedRole !== undefined ? { callerAssertedRole } : {}), ...(requestedExpiresAt !== undefined ? { requestedExpiresAt } : {}) },
+            ));
+          }
           if (req.method === 'POST' && subPath === '/terminate') {
             const input = await body(req);
             const reason = isPlainObject(input) && typeof input.reason === 'string' ? input.reason : 'Operator-initiated termination';

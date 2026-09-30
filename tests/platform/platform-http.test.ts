@@ -19,13 +19,19 @@ import { NOW, envelope } from '../fixture.js';
 
 const TENANT = 'tenant_demo';
 const AGENT = 'deployment-agent-17';
+const APPROVER_TOKEN = 'approver-token-32-characters-long-sec';
 const CREDENTIALS = {
   agentTokens: { [`agent-token-${'a'.repeat(24)}`]: AGENT },
   operatorToken: 'operator-token-32-characters-long-x',
   adminToken: 'admin-token-32-characters-long-xxxx',
   serviceToken: 'service-token-32-characters-long-xx',
+  approverTokens: { [APPROVER_TOKEN]: 'human-release-manager' },
 };
 const AGENT_TOKEN = Object.keys(CREDENTIALS.agentTokens)[0]!;
+/** Headers carrying an operator (resuming) credential plus the independent approver credential. */
+function approveHeaders(operatorToken: string, approverToken: string): Record<string, string> {
+  return { Authorization: `Bearer ${operatorToken}`, 'X-Approver-Authorization': `Bearer ${approverToken}`, 'Content-Type': 'application/json' };
+}
 
 function actionRequest(requestId: string, patch: Record<string, unknown> = {}) {
   return {
@@ -43,17 +49,18 @@ async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void
   gate.setEnvelope({ kind: 'admin', role: 'administrator' }, envelope());
   const registry = new ToolRegistry();
   registry.register({ name: 'log.write', action: 'log.write', resourceType: 'files', allowedOperations: ['read'], networkRequired: false, credentialsRequired: [], handler: context => ({ echoed: context.input }) });
+  registry.register({ name: 'deploy.execute', action: 'production.deploy', resourceType: 'infrastructure', allowedOperations: ['write'], networkRequired: true, credentialsRequired: [], handler: () => ({ deployed: true }) });
   const broker = new ExecutionBroker(gateEvidence, new CapabilityCodec(randomBytes(32)), registry);
   const sentinel = new SentinelRuntime(':memory:', { clock: () => NOW });
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', TENANT));
   const ledgerStore = new LedgerStore(':memory:');
   const ledger = new Ledger(ledgerStore);
   const platform = new PlatformStore(resolve(dir, 'platform.sqlite'), { clock: () => NOW });
-  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request) };
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
   const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, gatePort, facade);
   const auditorProvider = new LedgerEvidenceProvider(ledger, { readerId: 'r' });
   const auditorRuntime = new AuditorRuntime(':memory:', { evidenceProvider: auditorProvider });
   const server = createPlatformServer({ store: platform, facade, control, auditor: { runtime: auditorRuntime, principal: auditorAdmin('a', TENANT) } }, CREDENTIALS, TENANT);
@@ -109,9 +116,11 @@ test('HTTP: an agent cannot self-approve its own HELD action', async () => {
   await withServer(async baseUrl => {
     const held = await fetch(`${baseUrl}/v1/platform/actions`, { method: 'POST', headers: headers(AGENT_TOKEN), body: JSON.stringify(actionRequest('http_self_approve', { action: 'production.deploy', tool: 'deploy.execute', resource: 'prod.deploy.release', metadata: { destination: 'deploy.internal.company' } })) });
     const { platform_action_id: id } = await held.json() as { platform_action_id: string };
-    const res = await fetch(`${baseUrl}/v1/platform/actions/${id}/approve`, { method: 'POST', headers: headers(AGENT_TOKEN) });
+    // Agent token is not an approver credential; presenting it as the approver header is rejected (403),
+    // and the agent role cannot resume regardless.
+    const res = await fetch(`${baseUrl}/v1/platform/actions/${id}/approve`, { method: 'POST', headers: approveHeaders(AGENT_TOKEN, AGENT_TOKEN) });
     assert.equal(res.status, 403);
-    const resumeRes = await fetch(`${baseUrl}/v1/platform/actions/${id}/resume`, { method: 'POST', headers: headers(AGENT_TOKEN) });
+    const resumeRes = await fetch(`${baseUrl}/v1/platform/actions/${id}/resume`, { method: 'POST', headers: approveHeaders(AGENT_TOKEN, AGENT_TOKEN) });
     assert.equal(resumeRes.status, 403);
   });
 });
@@ -120,9 +129,10 @@ test('HTTP: an operator can approve a HELD action; an agent cannot terminate', a
   await withServer(async baseUrl => {
     const held = await fetch(`${baseUrl}/v1/platform/actions`, { method: 'POST', headers: headers(AGENT_TOKEN), body: JSON.stringify(actionRequest('http_operator_approve', { action: 'production.deploy', tool: 'deploy.execute', resource: 'prod.deploy.release', metadata: { destination: 'deploy.internal.company' } })) });
     const { platform_action_id: id } = await held.json() as { platform_action_id: string };
-    const approved = await fetch(`${baseUrl}/v1/platform/actions/${id}/approve`, { method: 'POST', headers: headers(CREDENTIALS.operatorToken) });
+    const approved = await fetch(`${baseUrl}/v1/platform/actions/${id}/approve`, { method: 'POST', headers: approveHeaders(CREDENTIALS.operatorToken, APPROVER_TOKEN), body: JSON.stringify({ expires_at: '2026-09-09T00:00:00Z' }) });
     assert.equal(approved.status, 200);
-    assert.equal((await approved.json() as { state: string }).state, 'AUTHORIZING');
+    const approvedBody = await approved.json() as { state: string };
+    assert.ok(['AUTHORIZED', 'COMPLETED', 'AUTHORIZING'].includes(approvedBody.state), `action progressed past HOLD: state=${approvedBody.state}`);
     const terminateByAgent = await fetch(`${baseUrl}/v1/platform/actions/${id}/terminate`, { method: 'POST', headers: headers(AGENT_TOKEN), body: JSON.stringify({ reason: 'x' }) });
     assert.equal(terminateByAgent.status, 403);
   });

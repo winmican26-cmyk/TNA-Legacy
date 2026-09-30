@@ -13,7 +13,7 @@ import { SentinelRuntime, adminPrincipal as sentinelAdmin, controllerPrincipal a
 import { AuditorRuntime, adminPrincipal as auditorAdmin } from '../../packages/auditor-engine/src/index.js';
 import { LedgerEvidenceProvider } from '../../packages/auditor-evidence/src/index.js';
 import { agentPrincipal } from '../../packages/platform-schema/src/index.js';
-import { PlatformExecutionOrchestrator, PlatformGateOrchestrator, PlatformFacade, PlatformControlOrchestrator, PlatformLedgerDispatcher, PlatformStore } from '../../packages/platform-core/src/index.js';
+import { PlatformExecutionOrchestrator, PlatformGateOrchestrator, PlatformFacade, PlatformControlOrchestrator, PlatformLedgerDispatcher, PlatformStore, type GatePort } from '../../packages/platform-core/src/index.js';
 import { NOW, envelope } from '../fixture.js';
 
 const TENANT = 'tenant_demo';
@@ -36,10 +36,11 @@ function fixture() {
   const ledger = new Ledger(ledgerStore);
   const writer = writerPrincipal('platform-ledger-writer', TENANT, ['platform']);
   const reader = readerPrincipal('platform-ledger-reader', TENANT);
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platform);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platform, gatePort, facade);
   const dispatcher = new PlatformLedgerDispatcher(platform, { append: input => ledger.append(writer, input) }, { clock: () => NOW });
   const auditorProvider = new LedgerEvidenceProvider(ledger, { readerId: 'r' });
   const auditorRuntime = new AuditorRuntime(resolve(dir, 'auditor.sqlite'), { evidenceProvider: auditorProvider });
