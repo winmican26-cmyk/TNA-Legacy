@@ -31,6 +31,7 @@
     "start:platform": "node dist/apps/tna-platform/src/main.js",
     "tna:init": "npm run build && node dist/scripts/tna-init.js",
     "tna:verify": "npm run build && node dist/scripts/tna-verify.js",
+    "tna:deploy": "npm run build && node dist/scripts/tna-deploy.js",
     "tna:backup": "npm run build && node dist/scripts/tna-backup.js",
     "tna:restore": "npm run build && node dist/scripts/tna-restore.js",
     "smoke:deployment:v01": "npm run build && node dist/scripts/smoke-deployment-v01.js",

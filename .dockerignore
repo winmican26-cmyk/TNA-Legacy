@@ -10,6 +10,10 @@ output
 test-artifacts
 examples
 docs
+# The Control Center web frontend imports docs/help/**/*.md at build time (Vite ?raw);
+# re-include only that subtree so the image build context has it, without un-ignoring all of docs.
+!docs/help
+!docs/help/**
 *.tsbuildinfo
 *.log
 .env

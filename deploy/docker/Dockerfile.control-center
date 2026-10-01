@@ -15,6 +15,11 @@ COPY scripts ./scripts
 COPY tests ./tests
 COPY academy ./academy
 COPY improvement ./improvement
+# The Control Center web frontend imports the Help markdown from the repo-root `docs/help` tree at
+# BUILD time (apps/tna-control-center-web/src/help/registry.ts, Vite `?raw`). It must be present in
+# the builder context or `npm run build:control-center-web` cannot resolve those imports. Deploy-layer
+# build-context completion only — no source or security-semantics change.
+COPY docs ./docs
 # `apps/tna-control-center-web` is a real npm workspace member (matches the root `apps/*` glob) — one
 # `npm ci` at the repository root installs both the BFF's and the frontend's dependencies together.
 RUN npm ci

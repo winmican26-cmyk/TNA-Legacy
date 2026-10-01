@@ -18,3 +18,13 @@ apps/tna-control-center-web/.npm-cache/
 deploy/compose/secrets/
 deploy/compose/tenant-registry.pilot.json
 deploy/compose/*.pilot.env
+
+# Local backups of the real tenant registry are secret-bearing (hold backend tokens) — never committed.
+deploy/compose/tenant-registry.pilot.json.bak
+*.bak
+
+# Local-only runtime/scratch state: process logs, local output, and IDE/agent state.
+output/
+*.log
+.claude/
+.qwen/

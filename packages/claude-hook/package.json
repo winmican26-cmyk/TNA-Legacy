@@ -11,22 +11,6 @@
     "build": "tsc",
     "test": "node --test dist/**/*.test.js"
   },
-  "dependencies": {
-    "@tna/vendor-adapter-core": "workspace:*",
-    "@tna/vendor-adapter-runtime": "workspace:*",
-    "@tna/platform-core": "workspace:*",
-    "@tna/platform-schema": "workspace:*",
-    "@tna/execution-broker": "workspace:*",
-    "@tna/capability-core": "workspace:*",
-    "@tna/agent-identity": "workspace:*",
-    "@tna/shared-schema": "workspace:*",
-    "@tna/sentinel-runtime": "workspace:*",
-    "@tna/sentinel-schema": "workspace:*",
-    "@tna/ledger-schema": "workspace:*",
-    "@tna/authority-envelope": "workspace:*",
-    "@tna/model-adapter": "workspace:*",
-    "@tna/vad-core": "workspace:*"
-  },
   "devDependencies": {
     "@types/node": "24.3.1",
     "typescript": "5.9.2"
