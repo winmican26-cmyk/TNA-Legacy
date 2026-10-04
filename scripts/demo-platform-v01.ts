@@ -21,7 +21,7 @@ import { LedgerEvidenceProvider } from '../packages/auditor-evidence/src/index.j
 import { agentPrincipal } from '../packages/platform-schema/src/index.js';
 import {
   PlatformStore, PlatformGateOrchestrator, PlatformExecutionOrchestrator,
-  PlatformFacade, PlatformLedgerDispatcher, reconstructPlatformAction, type VadPort,
+  PlatformFacade, PlatformLedgerDispatcher, reconstructPlatformAction, type VadPort, type GatePort,
 } from '../packages/platform-core/src/index.js';
 import { VadVerificationAdapter } from '../apps/tna-platform/src/vad-adapter.js';
 
@@ -105,6 +105,7 @@ const platformLedgerReader = readerPrincipal('platform-ledger-reader', tenantId)
 // owns its own Gate store, separate from the standalone tna-gate-api app's file, not a fresh one per
 // demo flow).
 const { gate, store: gateStore, broker } = buildGate();
+const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
 
 process.stdout.write('PLATFORM STORE INITIALIZED\n');
 
@@ -115,7 +116,7 @@ separator('TNA Platform v0.1 — Flow 1: Success');
   const sentinel = new SentinelRuntime(resolve(dataDir, 'demo-platform-sentinel-1.sqlite'));
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const platform = new PlatformStore(paths.platform);
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('platform-sentinel-controller', tenantId), sentinelObserverFactory('platform-execution-broker', tenantId, ['EXECUTION_BROKER']));
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
   const dispatcher = new PlatformLedgerDispatcher(platform, { append: input => ledger.append(platformLedgerWriter, input) });
@@ -157,7 +158,7 @@ separator('TNA Platform v0.1 — Flow 2: Block');
   const sentinel = new SentinelRuntime(resolve(dataDir, 'demo-platform-sentinel-2.sqlite'));
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const platform = new PlatformStore(resolve(dataDir, 'demo-platform-flow2.sqlite'));
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', tenantId), sentinelObserverFactory('o', tenantId, ['EXECUTION_BROKER']));
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
 
@@ -189,7 +190,7 @@ separator('TNA Platform v0.1 — Flow 3: Sentinel Termination (Mid-Flight Revoca
   const sentinel = new SentinelRuntime(resolve(dataDir, 'demo-platform-sentinel-3.sqlite'), { revalidator: revokedRevalidator });
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const platform = new PlatformStore(resolve(dataDir, 'demo-platform-flow3.sqlite'));
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', tenantId), sentinelObserverFactory('o', tenantId, ['EXECUTION_BROKER']));
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
 
@@ -213,7 +214,7 @@ separator('TNA Platform v0.1 — Flow 4: Verified Work (VAD)');
   const sentinel = new SentinelRuntime(resolve(dataDir, 'demo-platform-sentinel-4.sqlite'));
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const platform = new PlatformStore(resolve(dataDir, 'demo-platform-flow4.sqlite'));
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const vad: VadPort = new VadVerificationAdapter();
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', tenantId), sentinelObserverFactory('o', tenantId, ['EXECUTION_BROKER']), vad);
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
@@ -241,7 +242,7 @@ separator('TNA Platform v0.1 — Flow 5: Outbox Recovery');
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const flow5Path = resolve(dataDir, 'demo-platform-flow5.sqlite');
   let platform = new PlatformStore(flow5Path);
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', tenantId), sentinelObserverFactory('o', tenantId, ['EXECUTION_BROKER']));
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
 
@@ -284,7 +285,7 @@ separator('TNA Platform v0.1 — Flow 6: Audit');
   const sentinel = new SentinelRuntime(resolve(dataDir, 'demo-platform-sentinel-6.sqlite'));
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', tenantId));
   const platform = new PlatformStore(resolve(dataDir, 'demo-platform-flow6.sqlite'));
-  const gateOrchestrator = new PlatformGateOrchestrator(platform, gate);
+  const gateOrchestrator = new PlatformGateOrchestrator(platform, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', tenantId), sentinelObserverFactory('o', tenantId, ['EXECUTION_BROKER']));
   const facade = new PlatformFacade(platform, gateOrchestrator, executionOrchestrator);
   const dispatcher = new PlatformLedgerDispatcher(platform, { append: input => ledger.append(platformLedgerWriter, input) });

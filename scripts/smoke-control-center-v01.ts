@@ -58,11 +58,11 @@ async function main(): Promise<void> {
   sentinel.installDefaultPolicy(sentinelAdmin('sentinel-admin', TENANT));
   const ledgerStore = new LedgerStore(':memory:');
   const platformStore = new PlatformStore(resolve(dir, 'platform.sqlite'));
-  const gatePort: GatePort = { authorize: (principal, req) => gate.authorize(principal, req) };
+  const gatePort: GatePort = { authorize: (principal, req) => gate.authorize(principal, req), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
   const gateOrchestrator = new PlatformGateOrchestrator(platformStore, gatePort);
   const executionOrchestrator = new PlatformExecutionOrchestrator(platformStore, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']));
-  const control = new PlatformControlOrchestrator(platformStore);
   const facade = new PlatformFacade(platformStore, gateOrchestrator, executionOrchestrator);
+  const control = new PlatformControlOrchestrator(platformStore, gatePort, facade);
   const platformServer = createPlatformServer({ store: platformStore, facade, control }, CREDENTIALS, TENANT);
   const platformPort = await freePort();
   await new Promise<void>(res => platformServer.listen(platformPort, '127.0.0.1', res));

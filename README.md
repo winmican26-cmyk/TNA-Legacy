@@ -264,3 +264,19 @@ The workspace packages are private TypeScript source packages. The root build em
 - Explicit action bindings prevent agents from reinterpreting prose objectives. Unknown schema fields, unknown actions, undeclared resources, and unapproved hosts fail closed.
 
 Read [the envelope specification](docs/authority-envelope-v1.md), [API contract](docs/api.md), and [threat model](docs/threat-model.md) before integrating an executor. The preserved Volume 1 brief is in [docs/volume-1-design.md](docs/volume-1-design.md).
+
+---
+
+## Repository Model (Final)
+
+```
+TNA-Core (PRIVATE)     = canonical engineering source of truth (this repository)
+TNA-Legacy (PRIVATE)   = historical repository retained for provenance
+TNA-Public (PUBLIC)    = sanitized architecture, documentation, safe integration surface, and sanitized evidence
+```
+
+- **TNA-Core** (this repository): Contains the complete engineering implementation — packages/, apps/, tests/, scripts/, deployment automation, and all frozen acceptance tags. Access is private.
+- **TNA-Legacy**: Historical provenance repository (if separated), retained for commit history and audit trail.
+- **TNA-Public**: Public GitHub repository (https://github.com/winmican26-cmyk/TNA-Public) containing only sanitized documentation, architecture diagrams, integration guides, threat model summaries, and sanitized evidence packages. **No private implementation code, no proprietary algorithms, no secrets, no test suites, no deployment automation, and no TNA-Core commit ancestry.**
+
+The public repository is a clean, independent Git history built from approved public materials only. It does not constitute a security or compliance certification.

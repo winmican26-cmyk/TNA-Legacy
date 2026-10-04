@@ -6,6 +6,22 @@
 
 ---
 
+## REPOSITORY MODEL (Final)
+
+| Repository | Visibility | Purpose |
+|------------|------------|---------|
+| **TNA-Core** | PRIVATE | Canonical engineering source of truth (this repository) |
+| **TNA-Legacy** | PRIVATE | Historical provenance |
+| **TNA-Public** | PUBLIC | Sanitized architecture, documentation, safe integration surface, sanitized evidence |
+
+**TNA-Core** (this repository): Complete engineering implementation — packages/, apps/, tests/, scripts/, deployment automation, all frozen acceptance tags. Access is private.
+
+**TNA-Legacy**: Historical provenance repository (if separated), retained for commit history and audit trail.
+
+**TNA-Public** (https://github.com/winmican26-cmyk/TNA-Public): Sanitized documentation, architecture diagrams, integration guides, threat model summaries, sanitized evidence packages. **No private implementation code, no proprietary algorithms, no secrets, no test suites, no deployment automation, no TNA-Core commit ancestry.** Clean, independent Git history built from approved public materials only. Does not constitute security or compliance certification.
+
+---
+
 ## 1. CLAUDE HOOK CONTRADICTION — RESOLVED
 
 | Component | Status | Evidence |

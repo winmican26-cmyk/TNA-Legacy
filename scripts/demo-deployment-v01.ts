@@ -241,11 +241,11 @@ async function flow6_degradedComponent(): Promise<void> {
   const ledgerStore = new LedgerStore(':memory:');
   const ledger = new Ledger(ledgerStore);
   const platform = new PlatformStore(resolve(dir, 'p.sqlite'));
-  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request) };
+  const gatePort: GatePort = { authorize: (principal, request) => gate.authorize(principal, request), approve: (principal, { approverRole: _ar, expiresAt, ...req }) => { const r = gate.approve(principal, { request: { ...req, estimatedCostUsd: 0 }, expiresAt }) as { approvalId: string; expiresAt: string }; return { approvalId: r.approvalId, expiresAt: r.expiresAt }; }, requiredApproverRole: (agentId, action) => gate.requiredApproverRole(agentId, action) };
   new PlatformGateOrchestrator(platform, gatePort); // exercised for real construction only
   new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c', TENANT), sentinelObserverFactory('o', TENANT, ['EXECUTION_BROKER']));
-  new PlatformControlOrchestrator(platform);
-  new PlatformFacade(platform, new PlatformGateOrchestrator(platform, gatePort), new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c2', TENANT), sentinelObserverFactory('o2', TENANT, ['EXECUTION_BROKER'])));
+  const flow6Facade = new PlatformFacade(platform, new PlatformGateOrchestrator(platform, gatePort), new PlatformExecutionOrchestrator(platform, broker, sentinel, sentinelController('c2', TENANT), sentinelObserverFactory('o2', TENANT, ['EXECUTION_BROKER'])));
+  new PlatformControlOrchestrator(platform, gatePort, flow6Facade);
   const auditorProvider = new LedgerEvidenceProvider(ledger, { readerId: 'r' });
   const auditorRuntime = new AuditorRuntime(':memory:', { evidenceProvider: auditorProvider });
   auditorRuntime.close(); // genuinely unavailable — a closed store throws on every read
