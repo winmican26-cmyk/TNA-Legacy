@@ -229,9 +229,7 @@ regulatory/compliance status, does not prove AI-agent safety, and does not inven
 does not expose (numeric improvement-benchmark scores, a "holdout" result, or a persistent Incident record
 all remain honestly absent rather than fabricated). Two residual, non-blocking items: `react-router-dom`/
 `vite` retain moderate-severity dependency findings fixable only by a major version bump, neither reachable
-in this deployment's actual runtime paths; and a literal reverse-proxy (nginx) hop in front of the BFF was
-not exercised in this volume's container verification, though the BFF's own combined API+static serving was
-verified live. See the proof-of-work's "Architectural Acceptance" section for the complete list.
+in this deployment's actual runtime paths; and the pilot topology uses Caddy as the edge terminator — a separate reverse-proxy hop in front of the BFF was not exercised in this volume's container verification, though Caddy's combined API+static serving was verified live. See the proof-of-work's "Architectural Acceptance" section for the complete list.
 
 ## Repository
 

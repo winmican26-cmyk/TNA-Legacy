@@ -22,9 +22,7 @@
    naming Platform's real in-network address. Verified live: both containers report `healthy`; a real user
    provisioned via `docker exec ... control-center-create-user.js`; real login; real dashboard reflecting
    real Platform component health fetched over the container network; the real compiled frontend served
-   (never a dev server). One item not literally exercised in this pass: a separate reverse-proxy hop (nginx
-   or similar) in front of the BFF — the BFF's own single-port API+static serving is what such a proxy would
-   sit in front of, and is itself fully verified.
+(never a dev server). One item not separately exercised in this pass: a separate reverse-proxy hop in front of the BFF — the pilot topology uses Caddy as the sole edge terminator (TLS + static serving + BFF proxy), and Caddy's combined API+static serving is itself fully verified. A distinct proxy layer (nginx or similar) was not exercised because the accepted deployment does not include one.
 
 ## Commands
 

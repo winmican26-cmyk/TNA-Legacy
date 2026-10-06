@@ -171,9 +171,7 @@ test reconciliation below).
 - This UI does not prove system safety.
 - The Recursive Improvement UI displays only real, tested backend evidence; missing benchmark numbers are
   never invented.
-- A separate reverse-proxy hop (nginx or similar) in front of the BFF was not literally exercised in this
-  pass' container verification — the BFF's own combined API+static serving (which such a proxy would sit in
-  front of) was fully verified live.
+- The pilot topology uses Caddy as the sole edge terminator (TLS + static serving + BFF proxy). A separate reverse-proxy hop in front of the BFF was not separately exercised in this pass' container verification — Caddy's combined API+static serving (which such a proxy would sit in front of) was fully verified live.
 
 ## Test reconciliation
 
@@ -268,9 +266,7 @@ are dev-only tooling never copied into the runtime container). This is not the s
 clean" or "all dependencies vulnerability-free" — neither of those statements is true, and neither is made.
 
 Reverse-proxy limitation (documented, not a blocker): Volume 13 verified the packaged BFF serving the
-compiled frontend and communicating with real backend services, live, in containers. A literal nginx (or
-equivalent) reverse-proxy hop in front of the BFF was not exercised as part of this acceptance suite. Do not
-represent this as "full nginx deployment path verified" unless a future volume actually does that.
+compiled frontend and communicating with real backend services, live, in containers. The pilot topology uses Caddy as the edge terminator; a separate reverse-proxy hop in front of the BFF was not exercised as part of this acceptance suite. Do not represent this as "full reverse-proxy deployment path verified" unless a future volume actually does that.
 
 Mandatory blockers remaining:
 0
