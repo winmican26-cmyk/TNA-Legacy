@@ -54,23 +54,17 @@ services:
       TNA_ADMIN_TOKEN_FILE: /run/secrets/tna_admin_token
       TNA_SERVICE_TOKEN_FILE: /run/secrets/tna_service_token
       TNA_CAPABILITY_KEY_FILE: /run/secrets/tna_capability_key
-      # v0.1 has no external customer IAM (see .env.example) — a single static agent credential remains
-      # the real, already-documented Volume 8 mechanism, unchanged for the pilot. HONEST GAP: unlike the
-      # operator/admin/service tokens, `apps/tna-platform/src/main.ts` reads
-      # `TNA_PLATFORM_DEMO_AGENT_TOKEN` as a literal value ONLY — it has no `_FILE` variant, and
-      # `deploy/docker/Dockerfile` (the accepted, frozen Platform image) has no secret-file-to-env-var
-      # entrypoint wrapper the way the three NEW images built for this pilot do, because adding one would
-      # mean modifying accepted Volume 9 packaging rather than only this pilot's own new deployment files.
-      # This one value is therefore supplied as a real literal env var, sourced from an operator-created,
-      # gitignored `.env` file (`docker compose --env-file`) — never a Docker `secrets:` file mount, and
-      # never a value typed directly into this YAML.
-      TNA_PLATFORM_DEMO_AGENT_TOKEN: ${TNA_PILOT_PLATFORM_AGENT_TOKEN:?set TNA_PILOT_PLATFORM_AGENT_TOKEN (see the runbook — this one credential cannot use the Docker secrets file mechanism the others use)}
+      # Pilot agent token uses _FILE variant for secret-file parity with operator/admin/service tokens.
+      # The literal env var remains as dev-compatible fallback (readSecretFromFileOrEnv checks _FILE first).
+      # Pilot agent ID is non-sensitive configuration — plain env var with default.
+      TNA_PLATFORM_DEMO_AGENT_TOKEN_FILE: /run/secrets/tna_platform_demo_agent_token
       TNA_PLATFORM_DEMO_AGENT_ID: ${TNA_PILOT_AGENT_ID:-pilot-agent-1}
     secrets:
       - tna_operator_token
       - tna_admin_token
       - tna_service_token
       - tna_capability_key
+      - tna_platform_demo_agent_token
     volumes:
       - tna-pilot-platform-data:/data
     read_only: true
@@ -202,6 +196,8 @@ secrets:
     file: ./secrets/client_gateway_admin_token.txt
   tna_improvement_admin_token:
     file: ./secrets/improvement_admin_token.txt
+  tna_platform_demo_agent_token:
+    file: ./secrets/platform_demo_agent_token.txt
 
 networks:
   tna-pilot-internal:

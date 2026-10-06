@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { readSecretFromFileOrEnv } from './secret-file.js';
 import { Gate } from '../../tna-gate-api/src/gate.js';
 import { Store } from '../../../packages/evidence-core/src/index.js';
 import { CapabilityCodec } from '../../../packages/capability-core/src/index.js';
@@ -44,8 +45,10 @@ logger.log('info', 'Deployment identity resolved', { event: 'DEPLOYMENT_IDENTITY
 // agent credential (env-provided, outside the strict DeploymentConfig schema) is the v0.1 stand-in,
 // unchanged in spirit from Volume 8's own demo credential. A real multi-agent identity provider is a
 // future milestone's concern, not invented here.
-const demoAgentToken = process.env.TNA_PLATFORM_DEMO_AGENT_TOKEN ?? '';
-const demoAgentId = process.env.TNA_PLATFORM_DEMO_AGENT_ID ?? '';
+// _FILE variant takes precedence over literal env for secret-file parity with operator/admin/service tokens.
+// Agent ID is non-sensitive configuration — plain env var with default matching bootstrap script.
+const demoAgentToken = readSecretFromFileOrEnv('TNA_PLATFORM_DEMO_AGENT_TOKEN_FILE', 'TNA_PLATFORM_DEMO_AGENT_TOKEN') ?? '';
+const demoAgentId = process.env.TNA_PLATFORM_DEMO_AGENT_ID ?? 'pilot-agent-1';
 // Independent approver credentials (final security remediation). Mirrors the accepted tna-gate-api
 // server's `approvers: [{ token, role }]` provisioning: each approver bearer token is bound at trusted
 // startup to exactly one approver role, from env, and is DISJOINT from operator/admin/service/agent
