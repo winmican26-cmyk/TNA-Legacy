@@ -28,3 +28,4 @@ output/
 *.log
 .claude/
 .qwen/
+tna.code-workspace
