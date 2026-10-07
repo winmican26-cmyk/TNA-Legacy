@@ -1,0 +1,96 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: TNA Gate API",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "build", "&&", "npm", "run", "start"],
+      "env": {
+        "TNA_ADMIN_TOKEN": "${env:TNA_ADMIN_TOKEN}",
+        "TNA_RELEASE_TOKEN": "${env:TNA_RELEASE_TOKEN}",
+        "TNA_SECURITY_TOKEN": "${env:TNA_SECURITY_TOKEN}",
+        "NODE_OPTIONS": "--experimental-sqlite"
+      },
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug: Demo (Volume 1)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "demo"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug: Demo (Volume 2)",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["run", "demo:v02"],
+      "runtimeExecutable": "npm",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug: Demo (Volume 3)",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["run", "demo:v03"],
+      "runtimeExecutable": "npm",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug: VAD Engine Demo",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["run", "demo:vad:v01"],
+      "runtimeExecutable": "npm",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug: Current Test File",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/.bin/jest",
+      "args": ["${relativeFile}", "--testTimeout=30000"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "NODE_OPTIONS": "--experimental-sqlite"
+      }
+    },
+    {
+      "name": "Debug: All Tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/.bin/jest",
+      "args": ["--testTimeout=30000"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "NODE_OPTIONS": "--experimental-sqlite"
+      }
+    },
+    {
+      "name": "Debug: Playwright Tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/.bin/playwright",
+      "args": ["test"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug: Full Check Pipeline",
+      "configurations": ["Debug: All Tests"],
+      "stopAll": true
+    }
+  ]
+}

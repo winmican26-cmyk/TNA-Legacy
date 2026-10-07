@@ -1,0 +1,158 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: install",
+      "type": "npm",
+      "script": "ci",
+      "args": ["--ignore-scripts"],
+      "group": "build",
+      "problemMatcher: [],
+      "detail": "Clean install dependencies"
+    },
+    {
+      "label": "npm: check",
+      "type": "npm",
+      "script": "check",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$tsc", "$eslint-stylish"],
+      "detail": "Typecheck, lint, build, unit tests, integration tests"
+    },
+    {
+      "label": "npm: build",
+      "type": "npm",
+      "script": "build",
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "detail": "Compile TypeScript to dist/"
+    },
+    {
+      "label": "npm: test",
+      "type": "npm",
+      "script": "test",
+      "group": "test",
+      "problemMatcher": ["$jest"],
+      "detail": "Run unit tests"
+    },
+    {
+      "label": "npm: demo",
+      "type": "npm",
+      "script": "demo",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Volume 1 local demo"
+    },
+    {
+      "label": "npm: demo:v02",
+      "type": "npm",
+      "script": "demo:v02",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Volume 2 capability demo"
+    },
+    {
+      "label": "npm: demo:v03",
+      "type": "npm",
+      "script": "demo:v03",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Volume 3 child-process demo"
+    },
+    {
+      "label": "npm: demo:vad:v01",
+      "type": "npm",
+      "script": "demo:vad:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run VAD Engine demo"
+    },
+    {
+      "label": "npm: demo:ledger:v01",
+      "type": "npm",
+      "script": "demo:ledger:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run TNA Ledger demo"
+    },
+    {
+      "label": "npm: demo:sentinel:v01",
+      "type": "npm",
+      "script": "demo:sentinel:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run TNA Sentinel demo"
+    },
+    {
+      "label": "npm: demo:auditor:v01",
+      "type": "npm",
+      "script": "demo:auditor:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run TNA Auditor demo"
+    },
+    {
+      "label": "npm: demo:platform:v01",
+      "type": "npm",
+      "script": "demo:platform:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Platform Integration demo"
+    },
+    {
+      "label": "npm: demo:deployment:v01",
+      "type": "npm",
+      "script": "demo:deployment:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Deployment Engineering demo"
+    },
+    {
+      "label": "npm: demo:client-integration:v01",
+      "type": "npm",
+      "script": "demo:client-integration:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Client Integration & MCP Gateway demo"
+    },
+    {
+      "label": "npm: demo:operator:v01",
+      "type": "npm",
+      "script": "demo:operator:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Operator Readiness demo"
+    },
+    {
+      "label": "npm: demo:academy:v01",
+      "type": "npm",
+      "script": "demo:academy:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Deployment Academy demo"
+    },
+    {
+      "label": "npm: demo:recursive-improvement:v01",
+      "type": "npm",
+      "script": "demo:recursive-improvement:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Recursive Improvement Governance demo"
+    },
+    {
+      "label": "npm: demo:control-center:v01",
+      "type": "npm",
+      "script": "demo:control-center:v01",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Run Control Center demo"
+    },
+    {
+      "label": "npm: start",
+      "type": "npm",
+      "script": "start",
+      "group": "none",
+      "problemMatcher: [],
+      "detail": "Start persistent API server (requires env tokens)"
+    }
+  ]
+}

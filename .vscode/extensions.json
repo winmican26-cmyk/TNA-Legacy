@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "ms-vscode.vscode-typescript-next",
+    "bradlc.vscode-tailwindcss",
+    "usernamehw.errorlens",
+    "streetsidesoftware.code-spell-checker",
+    "mikestead.dotenv",
+    "ms-vscode.vscode-json",
+    "redhat.vscode-yaml",
+    "github.vscode-github-actions",
+    "ms-playwright.playwright"
+  ],
+  "unwantedRecommendations": []
+}

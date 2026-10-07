@@ -1,6 +1,34 @@
 {
-    "chat.tools.terminal.autoApprove": {
-        "git tag": true,
-        "npx eslint": true
-    }
+  "chat.tools.terminal.autoApprove": {
+    "git tag": true,
+    "npx eslint": true
+  },
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "explicit"
+  },
+  "eslint.validate": ["typescript", "typescriptreact"],
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+  "files.exclude": {
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/*.tsbuildinfo": true
+  },
+  "search.exclude": {
+    "**/dist": true,
+    "**/node_modules": true
+  },
+  "files.watcherExclude": {
+    "**/dist/**": true,
+    "**/node_modules/**": true
+  },
+  "terminal.integrated.env.windows": {
+    "NODE_OPTIONS": "--experimental-sqlite"
+  },
+  "npm.packageManager": "npm",
+  "npm.runSilent": true
 }
